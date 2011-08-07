@@ -7,14 +7,33 @@
   
   if (window.WebSocket && !window.WEB_SOCKET_FORCE_FLASH) return;
   
-  var logger;
-  if (window.WEB_SOCKET_LOGGER) {
-    logger = WEB_SOCKET_LOGGER;
-  } else if (window.console && window.console.log && window.console.error) {
-    // In some environment, console is defined but console.log or console.error is missing.
-    logger = window.console;
-  } else {
-    logger = {log: function(){ }, error: function(){ }};
+  /**
+   * Read from WebSocketFallback[prop] or window[constnat] if available
+   *                    Supported props / constants
+   *                           'logger' / 'WEB_SOCKET_LOGGER' - default logger. Require methods 'log' and 'error'.
+   *                     'swf_location' / 'WEB_SOCKET_SWF_LOCATION' - location to WebSocketMain.swf
+   *  'suppress_cross_domain_swf_error' / 'WEB_SOCKET_SUPPRESS_CROSS_DOMAIN_SWF_ERROR' - disable error raised when swf is on different server and have name other that 'WebSocketMainInsecure.swf'
+   *                      'flash_debug' / 'WEB_SOCKET_DEBUG' - show debug from flash file
+   *      'disable_auto_initialization' / 'WEB_SOCKET_DISABLE_AUTO_INITIALIZATION' - disable initialization on script load
+   */
+  var readProp = function(prop, constant) {
+    if (window.WebSocketFallback && window.WebSocketFallback[prop]) {
+      return window.WebSocketFallback[prop];
+    } else if (constant && window[constant]) {
+      return window[constant];
+    } else {
+      return;
+    }
+  };
+
+  var logger = readProp('logger', 'WEB_SOCKET_LOGGER');
+  if (!logger) {
+    if (window.console && window.console.log && window.console.error) {
+      // In some environment, console is defined but console.log or console.error is missing.
+      logger = window.console;
+    } else {
+      logger = {log: function(){ }, error: function(){ }};
+    }
   }
   
   // swfobject.hasFlashPlayerVersion("10.0.0") doesn't work with Gnash.
@@ -206,7 +225,14 @@
   WebSocket.__instances = {};
   WebSocket.__tasks = [];
   WebSocket.__nextId = 0;
-  
+
+  if (!WebSocket.__swfLocation) {
+    WebSocket.__swfLocation = readProp('swf_location', 'WEB_SOCKET_SWF_LOCATION');
+  };
+  WebSocket.__suppress_cross_domain_swf_error = readProp('suppress_cross_domain_swf_error', WEB_SOCKET_SUPPRESS_CROSS_DOMAIN_SWF_ERROR);
+  WebSocket.__flash_debug = readProp('flash_debug', 'WEB_SOCKET_DEBUG');
+  WebSocket.__auto_initialization = !readProp('disable_auto_initialization', 'WEB_SOCKET_DISABLE_AUTO_INITIALIZATION');
+
   /**
    * Load a new flash security policy file.
    * @param {string} url
@@ -223,17 +249,13 @@
   WebSocket.__initialize = function() {
     if (WebSocket.__flash) return;
     
-    if (WebSocket.__swfLocation) {
-      // For backword compatibility.
-      window.WEB_SOCKET_SWF_LOCATION = WebSocket.__swfLocation;
-    }
-    if (!window.WEB_SOCKET_SWF_LOCATION) {
+    if (!WebSocket.__swfLocation) {
       logger.error("[WebSocket] set WEB_SOCKET_SWF_LOCATION to location of WebSocketMain.swf");
       return;
     }
-    if (!window.WEB_SOCKET_SUPPRESS_CROSS_DOMAIN_SWF_ERROR &&
-        !WEB_SOCKET_SWF_LOCATION.match(/(^|\/)WebSocketMainInsecure\.swf(\?.*)?$/) &&
-        WEB_SOCKET_SWF_LOCATION.match(/^\w+:\/\/([^\/]+)/)) {
+    if (!WebSocket.__suppress_cross_domain_swf_error &&
+        !WebSocket.__swfLocation.match(/(^|\/)WebSocketMainInsecure\.swf(\?.*)?$/) &&
+        WebSocket.__swfLocation.match(/^\w+:\/\/([^\/]+)/)) {
       var swfHost = RegExp.$1;
       if (location.host != swfHost) {
         logger.error(
@@ -266,7 +288,7 @@
     // See this article for hasPriority:
     // http://help.adobe.com/en_US/as3/mobile/WS4bebcd66a74275c36cfb8137124318eebc6-7ffd.html
     swfobject.embedSWF(
-      WEB_SOCKET_SWF_LOCATION,
+      WebSocket.__swfLocation,
       "webSocketFlash",
       "1" /* width */,
       "1" /* height */,
@@ -292,7 +314,7 @@
     setTimeout(function() {
       WebSocket.__flash = document.getElementById("webSocketFlash");
       WebSocket.__flash.setCallerUrl(location.href);
-      WebSocket.__flash.setDebug(!!window.WEB_SOCKET_DEBUG);
+      WebSocket.__flash.setDebug(!!WebSocket.__flash_debug);
       for (var i = 0; i < WebSocket.__tasks.length; ++i) {
         WebSocket.__tasks[i]();
       }
@@ -353,7 +375,7 @@
     return mimeType.enabledPlugin.filename.match(/flashlite/i) ? true : false;
   };
   
-  if (!window.WEB_SOCKET_DISABLE_AUTO_INITIALIZATION) {
+  if (WebSocket.__auto_initialization) {
     if (window.addEventListener) {
       window.addEventListener("load", function(){
         WebSocket.__initialize();
